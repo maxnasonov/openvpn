@@ -70,79 +70,82 @@ directory [node['openvpn']['fs_prefix'], '/etc/openvpn/server.up.d'].join do
   mode  '0755'
 end
 
-template "#{key_dir}/openssl.cnf" do
-  source 'openssl.cnf.erb'
-  owner 'root'
-  group node['openvpn']['root_group']
-  mode  '0644'
-end
+if node['openvpn']['role'] != 'slave'
 
-file "#{key_dir}/index.txt" do
-  owner 'root'
-  group node['openvpn']['root_group']
-  mode  '0600'
-  action :create
-end
-
-file "#{key_dir}/serial" do
-  content '01'
-  not_if { ::File.exist?("#{key_dir}/serial") }
-end
-
-require 'openssl'
-
-file node['openvpn']['config']['dh'] do
-  content lazy { OpenSSL::PKey::DH.new(key_size).to_s }
-  owner   'root'
-  group   node['openvpn']['root_group']
-  mode    '0600'
-  not_if  { ::File.exist?(node['openvpn']['config']['dh']) }
-end
-
-bash 'openvpn-initca' do
-  environment('KEY_CN' => "#{node['openvpn']['key']['org']} CA")
-  code <<-EOF
-    openssl req -batch -days #{node['openvpn']['key']['ca_expire']} \
-      -nodes -new -newkey rsa:#{key_size} -#{message_digest} -x509 \
-      -keyout #{node['openvpn']['signing_ca_key']} \
-      -out #{node['openvpn']['signing_ca_cert']} \
-      -config #{key_dir}/openssl.cnf
-  EOF
-  not_if { ::File.exist?(node['openvpn']['signing_ca_cert']) }
-end
-
-bash 'openvpn-server-key' do
-  environment('KEY_CN' => 'server')
-  code <<-EOF
-    openssl req -batch -days #{node['openvpn']['key']['expire']} \
-      -nodes -new -newkey rsa:#{key_size} -keyout #{key_dir}/server.key \
-      -out #{key_dir}/server.csr -extensions server \
-      -config #{key_dir}/openssl.cnf && \
-    openssl ca -batch -days #{node['openvpn']['key']['ca_expire']} \
-      -out #{key_dir}/server.crt -in #{key_dir}/server.csr \
-      -extensions server -md #{message_digest} -config #{key_dir}/openssl.cnf
-  EOF
-  not_if { ::File.exist?("#{key_dir}/server.crt") }
-end
-
-[node['openvpn']['signing_ca_key'], "#{key_dir}/server.key"].each do |key|
-  file key do
-    # Just fixes permissions.
-    action :create
+  template "#{key_dir}/openssl.cnf" do
+    source 'openssl.cnf.erb'
     owner 'root'
     group node['openvpn']['root_group']
-    mode '0600'
+    mode  '0644'
   end
-end
 
-execute 'gencrl' do
-  environment('KEY_CN' => "#{node['openvpn']['key']['org']} CA")
-  command "openssl ca -config #{[node['openvpn']['fs_prefix'], '/etc/openvpn/easy-rsa/openssl.cnf'].join} -gencrl " \
-          "-keyfile #{node['openvpn']['key_dir']}/server.key " \
-          "-cert #{node['openvpn']['key_dir']}/server.crt " \
-          "-out #{node['openvpn']['key_dir']}/crl.pem"
-  creates "#{node['openvpn']['key_dir']}/crl.pem"
-  action  :run
+  file "#{key_dir}/index.txt" do
+    owner 'root'
+    group node['openvpn']['root_group']
+    mode  '0600'
+    action :create
+  end
+
+  file "#{key_dir}/serial" do
+    content '01'
+    not_if { ::File.exist?("#{key_dir}/serial") }
+  end
+
+  require 'openssl'
+
+  file node['openvpn']['config']['dh'] do
+    content lazy { OpenSSL::PKey::DH.new(key_size).to_s }
+    owner   'root'
+    group   node['openvpn']['root_group']
+    mode    '0600'
+    not_if  { ::File.exist?(node['openvpn']['config']['dh']) }
+  end
+
+  bash 'openvpn-initca' do
+    environment('KEY_CN' => "#{node['openvpn']['key']['org']} CA")
+    code <<-EOF
+      openssl req -batch -days #{node['openvpn']['key']['ca_expire']} \
+        -nodes -new -newkey rsa:#{key_size} -#{message_digest} -x509 \
+        -keyout #{node['openvpn']['signing_ca_key']} \
+        -out #{node['openvpn']['signing_ca_cert']} \
+        -config #{key_dir}/openssl.cnf
+    EOF
+    not_if { ::File.exist?(node['openvpn']['signing_ca_cert']) }
+  end
+
+  bash 'openvpn-server-key' do
+    environment('KEY_CN' => 'server')
+    code <<-EOF
+      openssl req -batch -days #{node['openvpn']['key']['expire']} \
+        -nodes -new -newkey rsa:#{key_size} -keyout #{key_dir}/server.key \
+        -out #{key_dir}/server.csr -extensions server \
+        -config #{key_dir}/openssl.cnf && \
+      openssl ca -batch -days #{node['openvpn']['key']['ca_expire']} \
+        -out #{key_dir}/server.crt -in #{key_dir}/server.csr \
+        -extensions server -md #{message_digest} -config #{key_dir}/openssl.cnf
+    EOF
+    not_if { ::File.exist?("#{key_dir}/server.crt") }
+  end
+
+  [node['openvpn']['signing_ca_key'], "#{key_dir}/server.key"].each do |key|
+    file key do
+      # Just fixes permissions.
+      action :create
+      owner 'root'
+      group node['openvpn']['root_group']
+      mode '0600'
+    end
+  end
+
+  execute 'gencrl' do
+    environment('KEY_CN' => "#{node['openvpn']['key']['org']} CA")
+    command "openssl ca -config #{[node['openvpn']['fs_prefix'], '/etc/openvpn/easy-rsa/openssl.cnf'].join} -gencrl " \
+            "-keyfile #{node['openvpn']['key_dir']}/server.key " \
+            "-cert #{node['openvpn']['key_dir']}/server.crt " \
+            "-out #{node['openvpn']['key_dir']}/crl.pem"
+    creates "#{node['openvpn']['key_dir']}/crl.pem"
+    action  :run
+  end
 end
 
 # Make a world readable copy of the CRL
