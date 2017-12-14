@@ -127,6 +127,12 @@ if node['openvpn']['role'] != 'slave'
     not_if { ::File.exist?("#{key_dir}/server.crt") }
   end
 
+  execute "generate-tls-key" do
+    command "openvpn --genkey --secret #{node['openvpn']['key_dir']}/ta.key"
+    creates "#{node['openvpn']['key_dir']}/ta.key"
+    only_if { node['openvpn']['tls_auth'] }
+  end
+
   [node['openvpn']['signing_ca_key'], "#{key_dir}/server.key"].each do |key|
     file key do
       # Just fixes permissions.
